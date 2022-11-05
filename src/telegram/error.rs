@@ -1,4 +1,5 @@
 use std::fmt::{Debug, Display};
+pub type Result<T> = std::result::Result<T, BotError>;
 
 pub enum BotError {
     BadResponseResultError,

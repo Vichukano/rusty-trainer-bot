@@ -1,35 +1,41 @@
-use serde::Deserialize;
+use chrono::{DateTime, Local};
 
-#[derive(Deserialize, Debug)]
-pub struct Response<T> {
-    pub ok: bool,
-    pub description: Option<String>,
-    pub result: T,
+use super::user_state::State;
+
+pub struct UserContext {
+    pub user_id: u64,
+    pub user_stat: State,
+    pub training: Training,
 }
 
-pub type GetUpdateResponse = Response<Vec<Update>>;
-
-#[derive(Deserialize, Debug)]
-pub struct Update {
-    pub update_id: u64,
-    pub message: Option<Message>,
+pub enum Training {
+    Cardio(CardioTraining),
+    Gym(GymTraining),
 }
 
-#[derive(Deserialize, Debug)]
-pub struct Message {
-    pub message_id: u64,
-    pub chat: Chat,
-    pub from: User,
-    pub text: Option<String>,
+pub struct CardioTraining {
+    start_time: DateTime<Local>,
+    end_time: DateTime<Local>,
+    pub exersices: Vec<CardioExersice>,
 }
 
-#[derive(Deserialize, Debug)]
-pub struct Chat {
-    pub id: u64,
+pub struct CardioExersice {
+    start_time: DateTime<Local>,
+    end_time: DateTime<Local>,
+    name: String,
+    distance: u32,
 }
 
-#[derive(Deserialize, Debug)]
-pub struct User {
-    pub id: u64,
-    pub first_name: String,
+pub struct GymTraining {
+    start_time: DateTime<Local>,
+    pub end_time: DateTime<Local>,
+    pub exersices: Vec<GymExersice>,
+}
+
+pub struct GymExersice {
+    start_time: DateTime<Local>,
+    end_time: DateTime<Local>,
+    name: String,
+    weight: u32,
+    reps: u32,
 }
