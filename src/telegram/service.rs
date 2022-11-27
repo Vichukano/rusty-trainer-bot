@@ -1,20 +1,45 @@
+use std::time::Duration;
+
 use super::error::BotError;
 use crate::domain::model::GetUpdateResponse;
-use reqwest::blocking::Client;
 use serde_json::json;
+use ureq::{Agent, AgentBuilder};
 
 const TG_API_PREFIX: &str = "https://api.telegram.org/bot";
 
+struct HttpClient {
+    http: Agent,
+}
+
+impl HttpClient {
+    fn new() -> Self {
+        HttpClient {
+            http: AgentBuilder::new()
+                .timeout_read(Duration::from_secs(5))
+                .timeout_connect(Duration::from_secs(20))
+                .timeout_write(Duration::from_secs(5))
+                .build(),
+        }
+    }
+
+    fn post(&self, url: String, data: String) -> Result<ureq::Response, ureq::Error> {
+        self.http
+            .post(url.as_str())
+            .set("content-type", "application/json")
+            .send_string(data.as_str())
+    }
+}
+
 pub struct TelegramBotService {
-    client: Client,
     token: String,
+    http: HttpClient,
 }
 
 impl TelegramBotService {
     pub fn new(token: String) -> Self {
         TelegramBotService {
-            client: Client::new(),
             token,
+            http: HttpClient::new(),
         }
     }
 
@@ -53,25 +78,20 @@ impl TelegramBotService {
         let data = json!({ "offset": offset });
         let url = format!("{}{}/getUpdates", TG_API_PREFIX, self.token);
         log::trace!("Request url: {}", url);
-        let response = match self
-            .client
-            .post(url)
-            .body(data.to_string())
-            .header("content-type", "application/json")
-            .send()
-        {
+        let response = match self.http.post(url, data.to_string()) {
             Ok(r) => r,
             Err(e) => {
                 log::error!("Error: {}", e);
                 Err(BotError::RequestExecutionError(e))?
             }
         };
+        log::debug!("Response: {:?}", response);
         let status = response.status();
-        if status.is_client_error() || status.is_server_error() {
+        if status != 200 as u16 {
             log::error!("Wrong status code: {}", status);
-            return Err(BotError::BadStatusCode(status.as_u16()));
+            return Err(BotError::BadStatusCode(status));
         }
-        match response.json::<GetUpdateResponse>() {
+        match response.into_json() {
             Ok(r) => Ok(r),
             Err(e) => {
                 log::error!("Error: {}", e);
@@ -89,13 +109,7 @@ impl TelegramBotService {
         });
         let url = format!("{}{}/sendMessage", TG_API_PREFIX, self.token);
         log::trace!("Requset url: {}", url);
-        match self
-            .client
-            .post(url)
-            .body(answer_data.to_string())
-            .header("content-type", "application/json")
-            .send()
-        {
+        match self.http.post(url, answer_data.to_string()) {
             Ok(r) => {
                 log::trace!("Send response: {:#?}", r);
             }
