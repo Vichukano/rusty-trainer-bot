@@ -2,8 +2,8 @@ use std::fmt::{Debug, Display};
 
 pub enum BotError {
     BadResponseResultError,
-    RequestExecutionError(reqwest::Error),
-    ParseResponseError(reqwest::Error),
+    RequestExecutionError(ureq::Error),
+    ParseResponseError(std::io::Error),
     BadStatusCode(u16),
 }
 
