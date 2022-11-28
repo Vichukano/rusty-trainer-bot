@@ -27,8 +27,8 @@ pub fn start(context: MessageContext) -> AnswerContext {
     log::debug!("Start to handle context: {:#?}", context);
     AnswerContext {
         user_id: 0,
-        answer: "".to_owned(),
-        state: "".to_owned(),
+        answer: "!!".to_owned(),
+        state: State::START_STATE,
     }
 }
 
@@ -37,7 +37,7 @@ pub fn cardio(context: MessageContext) -> AnswerContext {
     AnswerContext {
         user_id: 0,
         answer: "".to_owned(),
-        state: "".to_owned(),
+        state: State::START_STATE,
     }
 }
 
@@ -46,7 +46,7 @@ pub fn stop_cardio(context: MessageContext) -> AnswerContext {
     AnswerContext {
         user_id: 0,
         answer: "".to_owned(),
-        state: "".to_owned(),
+        state: State::START_STATE,
     }
 }
 
@@ -55,6 +55,6 @@ pub fn cardio_input_distance(context: MessageContext) -> AnswerContext {
     AnswerContext {
         user_id: 0,
         answer: "".to_owned(),
-        state: "".to_owned(),
+        state: State::START_STATE,
     }
 }

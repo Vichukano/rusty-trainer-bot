@@ -3,8 +3,8 @@ pub type Result<T> = std::result::Result<T, BotError>;
 
 pub enum BotError {
     BadResponseResultError,
-    RequestExecutionError(reqwest::Error),
-    ParseResponseError(reqwest::Error),
+    RequestExecutionError(ureq::Error),
+    ParseResponseError(std::io::Error),
     BadStatusCode(u16),
 }
 
