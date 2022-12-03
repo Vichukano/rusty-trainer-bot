@@ -1,2 +1,1 @@
-pub mod user_state;
-mod model;
+pub mod model;

@@ -1,15 +1,15 @@
-use crate::domain::user_state::State;
+use crate::bot::error::BotError;
+use crate::bot::handler::Handler;
+use crate::domain::model::{State, UserContext};
 
-use super::error::BotError;
-use super::error::Result;
-use super::messages::BOT_DESCRIPTION;
-use super::messages::HELP_MESSAGE;
-use super::model::GetUpdateResponse;
-use super::model::Update;
+use crate::telegram::model::{GetUpdateResponse, Message};
+use anyhow::{Context, Result};
 use serde_json::json;
 use std::collections::HashMap;
 use std::time::Duration;
 use ureq::{Agent, AgentBuilder};
+
+use super::handler::HandlerDispatcher;
 
 const TG_API_PREFIX: &str = "https://api.telegram.org/bot";
 
@@ -28,11 +28,12 @@ impl HttpClient {
         }
     }
 
-    fn post(&self, url: String, data: String) -> std::result::Result<ureq::Response, ureq::Error> {
+    fn post(&self, url: String, data: String) -> Result<ureq::Response> {
         self.http
             .post(url.as_str())
             .set("content-type", "application/json")
             .send_string(data.as_str())
+            .map_err(|err| err.into())
     }
 }
 
@@ -55,8 +56,8 @@ impl TelegramBotService {
         let response = match self.get_updates(offset) {
             Ok(r) => {
                 log::debug!("Response result: {}", r.ok);
-                if !r.ok {
-                    Err(BotError::BadResponseResultError)?;
+                if r.ok != true {
+                    Err(BotError::BadResponseResultError)?
                 }
                 r
             }
@@ -69,9 +70,15 @@ impl TelegramBotService {
             if update.update_id > max_update_id {
                 max_update_id = update.update_id;
             }
-            let answer = &mut self.processor.process_message(update);
-            if let Some(answer) = answer {
-                self.send_answer(answer.text.as_str(), answer.chat_id)?;
+            //////////!!!!!!!!!!!!!!!!!!!
+            if let Some(message) = update.message {
+                let chat_id = message.chat.id;
+                let answer = self.processor.process_message(message);
+                if let Some(answer) = answer {
+                    self.send_answer(answer, chat_id)?;
+                }
+            } else {
+                log::debug!("Message is absent in update: {:#?}", update);
             }
         }
         Ok(max_update_id + 1)
@@ -85,25 +92,26 @@ impl TelegramBotService {
             Ok(r) => r,
             Err(e) => {
                 log::error!("Error: {}", e);
-                Err(BotError::RequestExecutionError(e))?
+                Err(e)?
             }
         };
         log::debug!("Response: {:?}", response);
         let status = response.status();
         if status != 200 as u16 {
             log::error!("Wrong status code: {}", status);
-            return Err(BotError::BadStatusCode(status));
+            Err(BotError::BadStatusCode(status)).context(format!("Status code: {}", status))?
         }
         match response.into_json() {
             Ok(r) => Ok(r),
             Err(e) => {
                 log::error!("Error: {}", e);
-                Err(BotError::ParseResponseError(e))
+                Err(e)?
             }
         }
     }
 
-    fn send_answer(&self, text: &str, chat_id: u64) -> Result<()> {
+    fn send_answer(&self, text: impl Into<String>, chat_id: u64) -> Result<()> {
+        let text = text.into();
         log::debug!("Start to send answer! Text: {}, chat id: {}", text, chat_id);
         let answer_data = json!({
          "chat_id": chat_id,
@@ -118,71 +126,46 @@ impl TelegramBotService {
             }
             Err(e) => {
                 log::error!("Error: {}", e);
-                Err(BotError::RequestExecutionError(e))?
+                Err(e)?
             }
         };
         Ok(())
     }
 }
 
-type StateStore = HashMap<u64, State>;
 struct MessageProcessor {
-    store: HashMap<u64, String>,
-}
-
-struct Answer {
-    text: String,
-    chat_id: u64,
-}
-
-impl Answer {
-    fn new(text: String, chat_id: u64) -> Self {
-        Self { text, chat_id }
-    }
+    store: HashMap<u64, UserContext>,
+    dispatcher: HandlerDispatcher,
 }
 
 impl MessageProcessor {
     fn new() -> Self {
         MessageProcessor {
             store: HashMap::new(),
+            dispatcher: HandlerDispatcher::new(),
         }
     }
 
-    fn process_message(&mut self, update: Update) -> Option<Answer> {
-        if let Some(message) = update.message {
-            log::debug!("Receive message: {:#?}", message);
-            if let Some(text) = message.text {
-                log::trace!("Receive message text: {}", text);
-                let user_name = message.from.first_name;
+    fn process_message(&mut self, message: Message) -> Option<String> {
+        log::debug!("Receive message: {:#?}", message);
+        match message.text {
+            Some(text) => {
                 let user_id = message.from.id;
-                let answer = self.dispatch_text(text.as_str(), user_name, user_id);
-                return Some(Answer::new(answer, message.chat.id));
-            }
-        }
-        None
-    }
-
-    fn dispatch_text(&mut self, text: &str, user_name: String, user_id: u64) -> String {
-        match text {
-            HELP => HELP_MESSAGE.to_owned(),
-            ABOUT => BOT_DESCRIPTION.to_owned(),
-            START => {
-                if let Some(v) = self.store.get(&user_id) {
-                    return "Тренировка уже идет".to_owned();
-                }
                 let store = &mut self.store;
-                store.insert(user_id, text.to_owned());
-                format!("{}, тренировка начата", user_name)
-            }
-            STOP => {
-                if let Some(_) = self.store.get(&user_id) {
-                    let store = &mut self.store;
-                    store.remove(&user_id);
-                    return format!("{}, трунировка окончена", user_name);
+                let user_context = match store.remove(&user_id) {
+                    Some(context) => context,
+                    None => UserContext::new(user_id),
+                };
+                let answer = self.dispatcher.handle(text, user_context);
+                if answer.1.user_state != State::Finished {
+                    store.insert(user_id, answer.1);
                 }
-                format!("{}, вы не начинали тренировку", user_name)
+                Some(answer.0)
             }
-            _ => format!("{} you send {}", user_name, text),
+            _ => {
+                log::debug!("Text message is absent in update!");
+                None
+            }
         }
     }
 }

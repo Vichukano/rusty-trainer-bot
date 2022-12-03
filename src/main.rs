@@ -1,8 +1,9 @@
 mod domain;
 mod telegram;
+mod bot;
 use std::{env, thread, time::Duration};
 
-use telegram::service::TelegramBotService;
+use bot::service::TelegramBotService;
 
 fn main() {
     let env_load_result = dotenv::dotenv().ok();
