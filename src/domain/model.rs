@@ -1,35 +1,76 @@
-use serde::Deserialize;
+use std::{time::Duration, time::Instant};
 
-#[derive(Deserialize, Debug)]
-pub struct Response<T> {
-    pub ok: bool,
-    pub description: Option<String>,
-    pub result: T,
+#[derive(Debug)]
+pub struct UserContext {
+    pub user_id: u64,
+    pub user_state: State,
+    pub training: CardioTraining,
 }
 
-pub type GetUpdateResponse = Response<Vec<Update>>;
-
-#[derive(Deserialize, Debug)]
-pub struct Update {
-    pub update_id: u64,
-    pub message: Option<Message>,
+impl UserContext {
+    pub fn new(id: u64) -> Self {
+        UserContext {
+            user_id: id,
+            user_state: State::ReadyToStart,
+            training: CardioTraining::start(),
+        }
+    }
 }
 
-#[derive(Deserialize, Debug)]
-pub struct Message {
-    pub message_id: u64,
-    pub chat: Chat,
-    pub from: User,
-    pub text: Option<String>,
+#[derive(Debug)]
+pub struct CardioTraining {
+    start_time: Instant,
+    end_time: Duration,
+    exersices: Vec<CardioExersice>,
 }
 
-#[derive(Deserialize, Debug)]
-pub struct Chat {
-    pub id: u64,
+impl CardioTraining {
+    pub fn start() -> Self {
+        CardioTraining {
+            start_time: Instant::now(),
+            end_time: Duration::ZERO,
+            exersices: Vec::new(),
+        }
+    }
+
+    pub fn add_exersise(&mut self, exersice: CardioExersice) {
+        self.exersices.push(exersice)
+    }
+
+    pub fn get_exersises(&mut self) -> &mut Vec<CardioExersice> {
+        &mut self.exersices
+    }
 }
 
-#[derive(Deserialize, Debug)]
-pub struct User {
-    pub id: u64,
-    pub first_name: String,
+#[derive(Debug)]
+pub struct CardioExersice {
+    start_time: Instant,
+    name: String,
+    pub training_time: Duration,
+    pub distance: u32,
+}
+
+impl CardioExersice {
+    pub fn start(name: String) -> Self {
+        CardioExersice {
+            start_time: Instant::now(),
+            name,
+            training_time: Duration::ZERO,
+            distance: 0,
+        }
+    }
+
+    pub fn finish(&mut self, distanse: u32) {
+        self.training_time = self.start_time.elapsed();
+        self.distance = distanse;
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub enum State {
+    ChooseTraining,
+    ReadyToStart,
+    TrainingInProgres,
+    SelectDistance,
+    Finished,
 }

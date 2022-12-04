@@ -1,9 +1,15 @@
-use std::time::Duration;
+use crate::bot::error::BotError;
+use crate::bot::handler::Handler;
+use crate::domain::model::{State, UserContext};
 
-use super::error::BotError;
-use crate::domain::model::GetUpdateResponse;
+use crate::telegram::model::{GetUpdateResponse, Message};
+use anyhow::{Context, Result};
 use serde_json::json;
+use std::collections::HashMap;
+use std::time::Duration;
 use ureq::{Agent, AgentBuilder};
+
+use super::handler::HandlerDispatcher;
 
 const TG_API_PREFIX: &str = "https://api.telegram.org/bot";
 
@@ -22,17 +28,19 @@ impl HttpClient {
         }
     }
 
-    fn post(&self, url: String, data: String) -> Result<ureq::Response, ureq::Error> {
+    fn post(&self, url: String, data: String) -> Result<ureq::Response> {
         self.http
             .post(url.as_str())
             .set("content-type", "application/json")
             .send_string(data.as_str())
+            .map_err(|err| err.into())
     }
 }
 
 pub struct TelegramBotService {
     token: String,
     http: HttpClient,
+    processor: MessageProcessor,
 }
 
 impl TelegramBotService {
@@ -40,15 +48,16 @@ impl TelegramBotService {
         TelegramBotService {
             token,
             http: HttpClient::new(),
+            processor: MessageProcessor::new(),
         }
     }
 
-    pub fn handle_updates(&self, offset: u64) -> Result<u64, BotError> {
+    pub fn handle_updates(&mut self, offset: u64) -> Result<u64> {
         let response = match self.get_updates(offset) {
             Ok(r) => {
                 log::debug!("Response result: {}", r.ok);
-                if !r.ok {
-                    Err(BotError::BadResponseResultError)?;
+                if r.ok != true {
+                    Err(BotError::BadResponseResultError)?
                 }
                 r
             }
@@ -61,20 +70,21 @@ impl TelegramBotService {
             if update.update_id > max_update_id {
                 max_update_id = update.update_id;
             }
+            //////////!!!!!!!!!!!!!!!!!!!
             if let Some(message) = update.message {
-                log::debug!("Receive message: {:#?}", message);
-                if let Some(text) = message.text {
-                    log::trace!("Receive message text: {}", text);
-                    let user_name = message.from.first_name;
-                    let answer = format!("{} you send {}", user_name, text);
-                    self.send_answer(answer.as_str(), message.chat.id)?;
+                let chat_id = message.chat.id;
+                let answer = self.processor.process_message(message);
+                if let Some(answer) = answer {
+                    self.send_answer(answer, chat_id)?;
                 }
+            } else {
+                log::debug!("Message is absent in update: {:#?}", update);
             }
         }
         Ok(max_update_id + 1)
     }
 
-    fn get_updates(&self, offset: u64) -> Result<GetUpdateResponse, BotError> {
+    fn get_updates(&self, offset: u64) -> Result<GetUpdateResponse> {
         let data = json!({ "offset": offset });
         let url = format!("{}{}/getUpdates", TG_API_PREFIX, self.token);
         log::trace!("Request url: {}", url);
@@ -82,25 +92,26 @@ impl TelegramBotService {
             Ok(r) => r,
             Err(e) => {
                 log::error!("Error: {}", e);
-                Err(BotError::RequestExecutionError(e))?
+                Err(e)?
             }
         };
         log::debug!("Response: {:?}", response);
         let status = response.status();
         if status != 200 as u16 {
             log::error!("Wrong status code: {}", status);
-            return Err(BotError::BadStatusCode(status));
+            Err(BotError::BadStatusCode(status)).context(format!("Status code: {}", status))?
         }
         match response.into_json() {
             Ok(r) => Ok(r),
             Err(e) => {
                 log::error!("Error: {}", e);
-                Err(BotError::ParseResponseError(e))
+                Err(e)?
             }
         }
     }
 
-    fn send_answer(&self, text: &str, chat_id: u64) -> Result<(), BotError> {
+    fn send_answer(&self, text: impl Into<String>, chat_id: u64) -> Result<()> {
+        let text = text.into();
         log::debug!("Start to send answer! Text: {}, chat id: {}", text, chat_id);
         let answer_data = json!({
          "chat_id": chat_id,
@@ -115,9 +126,46 @@ impl TelegramBotService {
             }
             Err(e) => {
                 log::error!("Error: {}", e);
-                Err(BotError::RequestExecutionError(e))?
+                Err(e)?
             }
         };
         Ok(())
+    }
+}
+
+struct MessageProcessor {
+    store: HashMap<u64, UserContext>,
+    dispatcher: HandlerDispatcher,
+}
+
+impl MessageProcessor {
+    fn new() -> Self {
+        MessageProcessor {
+            store: HashMap::new(),
+            dispatcher: HandlerDispatcher::new(),
+        }
+    }
+
+    fn process_message(&mut self, message: Message) -> Option<String> {
+        log::debug!("Receive message: {:#?}", message);
+        match message.text {
+            Some(text) => {
+                let user_id = message.from.id;
+                let store = &mut self.store;
+                let user_context = match store.remove(&user_id) {
+                    Some(context) => context,
+                    None => UserContext::new(user_id),
+                };
+                let answer = self.dispatcher.handle(text, user_context);
+                if answer.1.user_state != State::Finished {
+                    store.insert(user_id, answer.1);
+                }
+                Some(answer.0)
+            }
+            _ => {
+                log::debug!("Text message is absent in update!");
+                None
+            }
+        }
     }
 }

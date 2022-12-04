@@ -1,8 +1,9 @@
 mod domain;
 mod telegram;
+mod bot;
 use std::{env, thread, time::Duration};
 
-use telegram::service::TelegramBotService;
+use bot::service::TelegramBotService;
 
 fn main() {
     let env_load_result = dotenv::dotenv().ok();
@@ -16,7 +17,7 @@ fn main() {
         poll_timeout
     );
     log::debug!("Starting bot! Poll timeout: {}", poll_timeout);
-    let service = TelegramBotService::new(token);
+    let mut service = TelegramBotService::new(token);
     let mut offset = 0;
     loop {
         offset = service.handle_updates(offset).unwrap();
