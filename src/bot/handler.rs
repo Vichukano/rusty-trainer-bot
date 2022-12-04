@@ -86,7 +86,7 @@ impl Handler for SelectExerHandler {
         if !TRAININGS.contains(&message.as_str()) {
             let all_trainings: String = TRAININGS.into_iter().map(|t| format!("[{}]", t)).collect();
             (
-                format!("Не верное упражнение. Введите одно из: {}", all_trainings),
+                format!("Не верное упражнение\\. Введите одно из: {}", all_trainings),
                 user_context,
             )
         } else {
@@ -136,8 +136,9 @@ impl Handler for SelectDistanceHandler {
                     exersice.finish(d);
                     return (
                         format!(
-                            "Тренировка завершена. Пройденная дистанция: {}, время: {:#?}",
-                            exersice.distance, exersice.training_time
+                            "Тренировка завершена\\. Пройденная дистанция: {}, время: {}",
+                            exersice.distance,
+                            exersice.training_time.as_secs()
                         ),
                         context,
                     );
@@ -146,7 +147,7 @@ impl Handler for SelectDistanceHandler {
             }
             Err(_) => (
                 format!(
-                    "Дистанция должна быть положительным числом. Вы ввели: {}",
+                    "Дистанция должна быть положительным числом\\. Вы ввели: {}",
                     distance
                 ),
                 user_context,
